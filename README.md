@@ -2,7 +2,7 @@
 
 Parses marker arrays generated from [Sweet markers system](https://steamcommunity.com/sharedfiles/filedetails/?id=324952672) and generates a trp array for use with [Tuntematon Firesupport](https://github.com/tuntematonjr/Tun-Firesupport).
 
-Executable files will be found under releases.
+Executable files can be found under releases.
 
 To build from source, simply clone the repo, run `go get`, followed by `go build`.
 
