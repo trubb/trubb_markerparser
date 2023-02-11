@@ -2,9 +2,9 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,10 +13,14 @@ import (
 
 var fileName string
 
-type tun struct {
-	name   string
-	xCoord string
-	yCoord string
+// a trp represents one entry in the target reference point array
+// that makes up the second subsection of the Tuntematon Fire Support
+// bookmark + saved trp data structure
+type trp struct {
+	name   string    // target reference point name
+	xCoord string    // because apparently there's string coordinates
+	yCoord string    // because apparently there's string coordinates
+	coords []float64 // actual coordinates
 }
 
 func main() {
@@ -52,64 +56,97 @@ func sweetToTun(c *cli.Context) error {
 
 	log.Printf("Running sweetToTun on file %q", fileName)
 
-	var trps []tun
+	// setup
+	var trps []trp
 	var trpString strings.Builder
 	trpString.WriteString("[[],[")
 
-	content, err := readFromFile(fileName)
+	// read sweet marker array
+	swmArr, err := readFromFile(fileName)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// clean
-	content = strings.ReplaceAll(content, "\n", "")
-	content = strings.ReplaceAll(content, "\t", "")
-	content = strings.ReplaceAll(content, " ", "")
+	// clean it
+	swmArr = strings.ReplaceAll(swmArr, "\n", "")
+	swmArr = strings.ReplaceAll(swmArr, "\t", "")
+	swmArr = strings.ReplaceAll(swmArr, " ", "")
 
-	// break up into individual entries
-	entries := strings.Split(content, "],[")
+	// break up into individual swmEntries
+	swmEntries := strings.Split(swmArr, "],[")
 
 	// extract the three first parts of each entry
-	for _, str := range entries {
-		entry := strings.ReplaceAll(str, "[", "")
+	// and use them to create a valid tunEntry
+	for _, entry := range swmEntries {
+		var tunEntry trp
+
+		// strip containing brackets
+		entry := strings.ReplaceAll(entry, "[", "")
 		entry = strings.ReplaceAll(entry, "]", "")
 
-		components := strings.Split(entry, ",")
+		// divide into string slice
+		fields := strings.Split(entry, ",")
 
-		// ignore any "" entry, as those are impossible to reference accurately
-		if components[0] == "\"\"" {
+		// ignore any "" entry, which are generally a sweet marker's line
+		// if it aint a line, whoever created the TRP is an idiot anyway
+		if fields[0] == "\"\"" {
 			continue
 		}
 
-		// wrangle the coordinates so that there's zeroes in front!
+		// set TRP name
+		tunEntry.name = fields[0]
+
+		// set detailed coordinates
+		x, err := strconv.ParseFloat(fields[1], 64)
+		if err != nil {
+			return err
+		}
+		y, err := strconv.ParseFloat(fields[2], 64)
+		if err != nil {
+			return err
+		}
+		tunEntry.coords = append(tunEntry.coords, float64(x), float64(y))
+
+		// wrangle the xCoord and yCoord string fields so that there's zeroes in front!
 		for j := 1; j <= 2; j++ {
-			if strings.Contains(components[j], ".") {
+			if strings.Contains(fields[j], ".") {
 
 				// discard decimals
-				k := strings.Index(components[j], ".")
+				k := strings.Index(fields[j], ".")
 
 				// add enough zeroes to the front of the string to pad up to 5 characters
 				var sb strings.Builder
-				pad := strings.Repeat("0", 5-len(components[j][:k]))
-				sb.WriteString("\"" + pad + components[j][:k] + "\"")
+				pad := strings.Repeat("0", 5-len(fields[j][:k]))
+				sb.WriteString("\"" + pad + fields[j][:k] + "\"")
 
-				components[j] = sb.String()
+				fields[j] = sb.String()
 			}
 		}
+		tunEntry.xCoord = fields[1]
+		tunEntry.yCoord = fields[2]
 
-		trps = append(trps, tun{components[0], components[1], components[2]})
+		trps = append(trps, tunEntry)
 	}
 
+	// write each entry into the output
 	for _, trp := range trps {
-		trpString.WriteString("[" + trp.name + "," + trp.xCoord + "," + trp.yCoord + "],")
+		start := "["
+		name := trp.name + ","
+		xcoord := trp.xCoord + ","
+		ycoord := trp.yCoord + ","
+		coordArr := "[" + fmt.Sprintf("%g", trp.coords[0]) + "," + fmt.Sprintf("%g", trp.coords[1]) + "]"
+		end := "],"
+		trpString.WriteString(start + name + xcoord + ycoord + coordArr + end)
 	}
 
+	// remove dangling comma and close the array structure
 	final := strings.TrimRight(trpString.String(), ",")
 	final += "]]"
 
 	log.Println("Parsed the input to the following trp array:")
 	fmt.Println("\n" + final + "\n")
 
+	// write to file
 	outFile := createFile()
 	err = writeToFile(outFile, final)
 	if err != nil {
@@ -168,7 +205,8 @@ func readFromFile(fileName string) (string, error) {
 
 	log.Printf("Reading from file %v\n", fileName)
 
-	byteArr, err := ioutil.ReadFile(fileName)
+	byteArr, err := os.ReadFile(fileName)
+
 	if err != nil {
 		log.Fatal(err)
 	}
